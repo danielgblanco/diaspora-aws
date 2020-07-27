@@ -1,0 +1,2 @@
+# diaspora-aws
+Diaspora
