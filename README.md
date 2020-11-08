@@ -7,8 +7,10 @@ Due to the wide range of cost and reliability requirements, we can think of two 
 high reliability, and the other one focused on low cost.
 
 ### Low-cost
-We'll start with the simpler, low-cost architecture. This can be run for about $30/month in Ireland (eu-west-1). Please
-refer to the following [AWS Pricing Calculator estimate](https://calculator.aws/#/estimate?id=aa9088fca91ba2d0014ec647456810b9c324067a).
+We'll start with the simpler, low-cost architecture. While it still provides high availability, rolling updates require
+downtime. The advantage is that this stack can be run for less than $20/month in Ireland (eu-west-1).
+
+Please refer to the following [AWS Pricing Calculator estimate](https://calculator.aws/#/estimate?id=1966a424bb82d72b8f68622697035a8aab7428ed).
 
 ![Low-cost Infrastructure Diagram](./low_cost/infra-diagram.png)
 
@@ -24,17 +26,15 @@ a security group to only allow SSH from the VPC (using a bastion host). Only web
 This contains one instance running an AMI with all [components](https://wiki.diasporafoundation.org/Diasporas_components_explained)
 installed, except database. Running in ASG provides higher availability as the ASG will restart failed instances.
 
-#### EBS Volume
-The EBS volume mounted on the pod instance. This EBS volume has automated snapshot enabled via CloudWatch events.
-
 #### Certificate Manager
 Certificate Manager to obtain a TLS certificate for the web server.
 
 #### S3 Bucket
 This bucket to host assets as explained in the diaspora* documentation on [hosting assets on S3](https://wiki.diasporafoundation.org/Asset_hosting_on_S3).
 
-#### RDS Database
-This PostgreSQL on RDS database runs in a private subnet. It is a single-AZ database with automatic snapshots enabled.
+#### Aurora PostgreSQL
+This PostgreSQL on Aurora database runs in private subnets. It is a serverless database, which reduces cost by only
+paying for the periods of usage.
 
 ### Reliable
 *NOTE: This is a draft diagram*
