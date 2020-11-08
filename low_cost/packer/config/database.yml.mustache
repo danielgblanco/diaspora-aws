@@ -1,0 +1,37 @@
+postgresql: &postgresql
+  adapter: postgresql
+  host: "{{database.host}}"
+  port: {{database.port}}
+  username: "{{database.user}}"
+  password: "{{database.password}}"
+  encoding: unicode
+
+common: &common
+  <<: *postgresql
+
+  # Should match environment.sidekiq.concurrency
+  pool: 5
+
+##################################################
+#### CONFIGURE ABOVE #############################
+##################################################
+
+# Normally you don't need to touch anything here
+
+combined: &combined
+  <<: *common
+development:
+  <<: *combined
+  database: diaspora_development
+production:
+  <<: *combined
+  database: diaspora_production
+test:
+  <<: *combined
+  database: diaspora_test
+integration1:
+  <<: *combined
+  database: diaspora_integration1
+integration2:
+  <<: *combined
+  database: diaspora_integration2

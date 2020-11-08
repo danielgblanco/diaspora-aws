@@ -1,0 +1,566 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Low-cost diaspora* pod infrastructure
+Parameters:
+  PodInstanceType:
+    Description: Pod EC2 Intance Type
+    Type: String
+    Default: t3a.small
+    AllowedValues:
+      - t3.micro
+      - t3a.micro
+      - t3.small
+      - t3a.small
+      - t3.medimum
+      - t3a.medium
+      - t3.large
+      - t3a.large
+      - t3.xlarge
+      - t3a.xlarge
+      - t3.2xlarge
+      - t3a.2xlarge
+      - m5.large
+      - m5a.large
+      - c5.large
+      - c5a.large
+    ConstraintDescription: must be a valid EC2 instance type.
+  PodKeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the pod
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+  PodAMI:
+    Description: AMI ID to use for pods
+    Type: AWS::EC2::Image::Id
+    ConstraintDescription: must be the name of an existing AMI.
+  AssetsBucketName:
+    Description: Name for the S3 bucket used for buckets
+    Type: String
+  DatabaseUsernameKey:
+    Description: Key for the database username parameter from SSM Parameter Store
+    Type: AWS::SSM::Parameter::Name
+    MinLength: '1'
+  DatabasePasswordKey:
+    Description: Key for the database password parameter from SSM Parameter Store
+    Type: AWS::SSM::Parameter::Name
+    MinLength: '1'
+  DatabaseUsernameVersion:
+    Description: Version for the database username parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+    Default: '1'
+  DatabasePasswordVersion:
+    Description: Version for the database password parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+    Default: '1'
+  RailsEnvironment:
+    Description: Environment to run on (e.g. production)
+    Type: String
+    Default: development
+    AllowedValues :
+      - development
+      - production
+  PodName:
+    Description: Name of the pod
+    Type: String
+    MinLength: '1'
+  EnableRegistration:
+    Description: Whether to enable registration or to have invite only (e.g. true). Registrations need to be enabled
+      the first time in order to be able to register an admin account
+    Type: String
+    MinLength: '1'
+    Default: false
+    AllowedValues:
+      - false
+      - true
+  InvitationsOpen:
+    Description: Wether to allow users to invite other or not (e.g. false)
+    Type: String
+    MinLength: '1'
+    Default: false
+    AllowedValues:
+      - false
+      - true
+  AdminAccount:
+    Description: Name of the admin account to use for contact details
+    Type: String
+    MinLength: '1'
+  AdminEmail:
+    Description: Email address for the admin to use for contact details
+    Type: String
+    MinLength: '1'
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: Infrastructure
+        Parameters:
+          - PodInstanceType
+          - PodKeyName
+          - PodAMI
+          - AssetsBucketName
+      - Label:
+          default: Diaspora config
+        Parameters:
+          - RailsEnvironment
+          - PodName
+          - EnableRegistration
+          - InvitationsOpen
+          - AdminAccount
+          - AdminEmail
+      - Label:
+          default: Database config
+        Parameters:
+          - DatabaseUsernameKey
+          - DatabasePasswordKey
+          - DatabaseUsernameVersion
+          - DatabasePasswordVersion
+    ParameterLabels:
+      PodInstanceType:
+        default: Pod Instance Type
+      PodKeyName:
+        default: Pod SSH Key Name
+      PodAMI:
+        default: Pod AMI
+      AssetsBucketName:
+        default: Assets S3 Bucket Name
+      DatabaseUsernameKey:
+        default: Database username key
+      DatabasePasswordKey:
+        default: Database password key
+      DatabaseUsernameVersion:
+        default: Database username version
+      DatabasePasswordVersion:
+        default: Database password version
+      RailsEnvironment:
+        default: configuration.server.rails_environment
+      PodName:
+        default: configuration.settings.pod_name
+      EnableRegistration:
+        default: configuration.settings.enable_registrations
+      InvitationsOpen:
+        default: configuration.settings.invitations.open
+      AdminAccount:
+        default: configuration.admins.account
+      AdminEmail:
+        default: configuration.admins.podmin_email
+
+Resources:
+  DiasporaVpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-vpc
+
+  DiasporaPublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ''
+      VpcId: !Ref DiasporaVpc
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-public
+
+  DiasporaPrivateSubnet0:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.101.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ''
+      VpcId: !Ref DiasporaVpc
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-private-0
+  DiasporaPrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.102.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ''
+      VpcId: !Ref DiasporaVpc
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-private-1
+
+  DiasporaInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-gateway
+  DiasporaInternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref DiasporaInternetGateway
+      VpcId: !Ref DiasporaVpc
+
+  DiasporaPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref DiasporaVpc
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-public-routes
+
+  DiasporaPublicRouteToInternet:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref DiasporaInternetGateway
+      RouteTableId: !Ref DiasporaPublicRouteTable
+
+  DiasporaPublicRouteTableSubnet:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DiasporaPublicRouteTable
+      SubnetId: !Ref DiasporaPublicSubnet
+
+  S3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      RouteTableIds:
+        - !Ref DiasporaPublicRouteTable
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      VpcId: !Ref DiasporaVpc
+
+  PodSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access and HTTP access from public
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: '80'
+          ToPort: '80'
+          CidrIp: 0.0.0.0/0
+      VpcId: !Ref DiasporaVpc
+
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable PostgreSQL access from within VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '5432'
+          ToPort: '5432'
+          CidrIp: 10.0.0.0/16
+      VpcId: !Ref DiasporaVpc
+
+  PodAutoscalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT15M
+        Count: '1'
+    UpdatePolicy:
+      AutoScalingRollingUpdate:
+        MaxBatchSize: '1'
+        MinInstancesInService: '0'
+        WaitOnResourceSignals: true
+        PauseTime: PT15M
+    Properties:
+      LaunchConfigurationName: !Ref PodLaunchConfig
+      MinSize: '1'
+      MaxSize: '1'
+      VPCZoneIdentifier:
+        - !Ref DiasporaPublicSubnet
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-pod
+          PropagateAtLaunch: true
+
+  PodRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  PodS3Policy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: S3AllowAll
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: '*'
+            Resource:
+              - !Sub 'arn:aws:s3:::${AssetsBucketName}'
+              - !Sub 'arn:aws:s3:::${AssetsBucketName}/*'
+      Roles:
+        - !Ref PodRole
+
+  PodSSMPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: SSMAllowGet
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: 'ssm:GetParameter'
+            Resource:
+              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DatabaseUsernameKey}'
+              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DatabasePasswordKey}'
+      Roles:
+        - !Ref PodRole
+
+  PodAssociateAddressPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: AssociateAddress
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action: 'ec2:AssociateAddress'
+            Resource: '*'
+      Roles:
+        - !Ref PodRole
+
+  PodInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref PodRole
+
+  PodElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Tags:
+        - Key: Name
+          Value: diaspora-low-cost-eip
+
+  PodLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Metadata:
+      Comment: Start services and send healthcheck notification
+      AWS::CloudFormation::Init:
+        config:
+          files:
+            /etc/systemd/system/diaspora.target:
+              content: !Sub |
+                [Unit]
+                Description=Diaspora social network
+                Wants=redis-server.service
+                After=redis-server.service
+
+                [Install]
+                WantedBy=multi-user.target
+              owner: root
+              group: root
+            /etc/systemd/system/diaspora-web.service:
+              content: !Sub |
+                [Unit]
+                Description=Diaspora social network (unicorn)
+                PartOf=diaspora.target
+                StopWhenUnneeded=true
+
+                [Service]
+                User=diaspora
+                Environment=RAILS_ENV=${RailsEnvironment}
+                WorkingDirectory=/home/diaspora/diaspora
+                PIDFile=/home/diaspora/diaspora/tmp/pids/web.pid
+                ExecStart=/bin/bash -lc "bin/bundle exec unicorn -c config/unicorn.rb -E ${RailsEnvironment}"
+                ExecReload=/bin/kill -USR2 $MAINPID
+                Restart=always
+
+                [Install]
+                WantedBy=diaspora.target
+            /etc/systemd/system/diaspora-sidekiq.service:
+              content: !Sub |
+                [Unit]
+                Description=Diaspora social network (sidekiq)
+                PartOf=diaspora.target
+                StopWhenUnneeded=true
+
+                [Service]
+                User=diaspora
+                Environment=RAILS_ENV=${RailsEnvironment}
+                WorkingDirectory=/home/diaspora/diaspora
+                ExecStart=/bin/bash -lc "bin/bundle exec sidekiq"
+                Restart=always
+
+                [Install]
+                WantedBy=diaspora.target
+              owner: root
+              group: root
+            /home/diaspora/diaspora/config/nginx.global.values.yml:
+              content: !Sub |
+                http:
+              owner: diaspora
+              group: diaspora
+            /home/diaspora/diaspora/config/nginx.server.values.yml:
+              content: !Sub |
+                server:
+              owner: diaspora
+              group: diaspora
+            /home/diaspora/diaspora/config/database.values.yml:
+              content: !Sub |
+                database:
+                  user: #DB_USER#          # Replaced using AWS SSM CLI at startup (resolve:ssm not supported here)
+                  password: #DB_PASSWORD#  # Replaced using AWS SSM CLI at startup (resolve:ssm not supported here)
+                  host: ${AuroraCluster.Endpoint.Address}
+                  port: ${AuroraCluster.Endpoint.Port}
+              owner: diaspora
+              group: diaspora
+            /home/diaspora/diaspora/config/diaspora.values.yml:
+              content: !Sub |
+                configuration:
+                  environment:
+                    url: http://${PodElasticIp} # TODO: change for domain
+                    s3:
+                      bucket: ${AssetsBucketName}
+                      region: ${AWS::Region}
+                  server:
+                    rails_environment: ${RailsEnvironment}
+                  settings:
+                    pod_name: ${PodName}
+                    enable_registration: ${EnableRegistration}
+                    invitations:
+                      open: ${InvitationsOpen}
+                  admins:
+                    account: ${AdminAccount}
+                    podmin_email: ${AdminEmail}
+              owner: diaspora
+              group: diaspora
+
+    Properties:
+      KeyName: !Ref PodKeyName
+      ImageId: !Ref PodAMI
+      SecurityGroups:
+        - !Ref PodSecurityGroup
+      InstanceType: !Ref PodInstanceType
+      IamInstanceProfile: !Ref PodInstanceProfile
+      AssociatePublicIpAddress: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -eo pipefail
+
+          echo "Executing cfn-init"
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodLaunchConfig --region ${AWS::Region}
+
+          # Try to register EIP (old instance may still be shutting down)
+          echo "Associating EIP"
+          instance_id=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
+          set +e
+          while true; do
+            aws --region ${AWS::Region} ec2 associate-address --allocation-id ${PodElasticIp.AllocationId} --instance-id $instance_id
+            if [[ "$?" -eq 0 ]]; then
+              break
+            fi
+            echo "Could not register EIP, trying again in 10 seconds"
+            sleep 10
+          done
+          set -e
+
+          # Apply config
+          echo "Rendering Mustache config templates"
+          cd /home/diaspora/diaspora
+
+          sed -i "s/#DB_USER#/$(aws --region ${AWS::Region} ssm get-parameter --name ${DatabaseUsernameKey}:${DatabaseUsernameVersion} --query 'Parameter.Value' --output text)/g" config/database.values.yml
+          sed -i "s/#DB_PASSWORD#/$(aws --region ${AWS::Region} ssm get-parameter --name ${DatabasePasswordKey}:${DatabasePasswordVersion} --with-decryption --query 'Parameter.Value' --output text)/g" config/database.values.yml
+
+          mustache config/diaspora.values.yml config/diaspora.yml.mustache > config/diaspora.yml
+          mustache config/database.values.yml config/database.yml.mustache > config/database.yml
+          chown diaspora:diaspora config/diaspora.yml
+          chown diaspora:diaspora config/database.yml
+
+          mustache config/nginx.global.values.yml config/nginx.global.mustache > /etc/nginx/nginx.conf
+          mustache config/nginx.server.values.yml config/nginx.server.mustache > /etc/nginx/sites-available/default
+
+          # Configure database
+          echo "Configuring database"
+          su diaspora -c "cd /home/diaspora && source .profile && cd diaspora && RAILS_ENV=${RailsEnvironment} bundle exec rake db:create db:migrate"
+
+          # Precompile assets (download from S3 existing ones already)
+          echo "Precompiling assets"
+          su diaspora -c "aws --region eu-west-1 s3 sync s3://${AssetsBucketName}/assets /home/diaspora/diaspora/public/assets"
+          su diaspora -c "cd /home/diaspora && source .profile && cd diaspora && RAILS_ENV=${RailsEnvironment} bin/rake assets:precompile"
+          su diaspora -c "aws --region eu-west-1 s3 sync /home/diaspora/diaspora/public/assets s3://${AssetsBucketName}/assets"
+
+          # Start diaspora
+          echo "Starting *diaspora server"
+          systemctl enable diaspora.target diaspora-sidekiq.service diaspora-web.service
+          systemctl restart diaspora.target
+
+          echo "Restarting NGINX server"
+          systemctl restart nginx.service
+
+          echo "cfn-signal success!"
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource PodAutoscalingGroup --region ${AWS::Region}
+
+  AuroraPrivateDbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: DB Subnet Group for Diaspora Aurora DB
+      SubnetIds:
+        - !Ref DiasporaPrivateSubnet0
+        - !Ref DiasporaPrivateSubnet1
+
+  AuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      BackupRetentionPeriod: 1
+      DeletionProtection: false # TODO: enable
+      DBSubnetGroupName: !Ref AuroraPrivateDbSubnetGroup
+      Engine: aurora-postgresql
+      EngineMode: serverless
+      EngineVersion: 10.12
+      MasterUsername: !Sub '{{resolve:ssm:${DatabaseUsernameKey}:${DatabaseUsernameVersion}}}'
+      MasterUserPassword: !Sub '{{resolve:ssm-secure:${DatabasePasswordKey}:${DatabasePasswordVersion}}}'
+      Port: 5432
+      ScalingConfiguration:
+        AutoPause: true
+        MaxCapacity: 2
+        SecondsUntilAutoPause: 300
+      VpcSecurityGroupIds:
+        - !Ref DbSecurityGroup
+
+  AssetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref AssetsBucketName
+      CorsConfiguration:
+        CorsRules:
+          - AllowedMethods:
+              - GET
+            AllowedOrigins:
+              - !Sub 'http://${PodElasticIp}' # TODO: change for domain
+
+  AssetsBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref AssetsBucket
+      PolicyDocument:
+        Statement:
+          - Action:
+              - 's3:GetObject'
+            Effect: Allow
+            Resource: !Sub 'arn:aws:s3:::${AssetsBucket}/assets/*'
+            Principal: '*'

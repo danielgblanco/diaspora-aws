@@ -1,0 +1,45 @@
+# The configurable properties in this file are rendered via Mustache, and can be passed to the CloudFormation stack
+# without the need to create a new AMI.
+#
+# Properties with static values are not configurable, as they're related to components in the AMI or CloudFormation
+# stack.
+#
+# Properties missing take default values, for a complete description of all config properties go to
+# https://github.com/diaspora/diaspora/blob/master/config/diaspora.yml.example
+
+configuration:
+  environment:
+    url: "{{configuration.environment.url}}"
+    certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'
+    redis: redis://localhost
+    require_ssl: false # TODO: enable after certificates are setup
+
+    sidekiq:
+      concurrency: 5
+
+    s3:
+      enable: true
+      key: 'N/A'    # Key not needed because instance uses IAM profile
+      secret: 'N/A' # Secret not needed because instance uses IAM profile
+      bucket: '{{configuration.environment.s3.bucket}}'
+      region: '{{configuration.environment.s3.region}}'
+
+    assets:
+      serve: false
+      upload: false
+      host: https://{{configuration.environment.s3.bucket}}.s3.{{configuration.environment.s3.region}}.amazonaws.com
+
+  server:
+    listen: 'unix:tmp/diaspora.sock'
+    rails_environment: '{{configuration.server.rails_environment}}'
+
+  settings:
+    pod_name: "{{configuration.settings.pod_name}}"
+    enable_registrations: {{configuration.settings.enable_registrations}}
+
+    invitations:
+      open: {{configuration.settings.invitations.open}}
+
+  admins:
+    account: {{configuration.admins.account}}
+    podmin_email: {{configuration.admins.podmin_email}}
