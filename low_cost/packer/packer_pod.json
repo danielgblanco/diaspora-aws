@@ -1,0 +1,58 @@
+{
+  "variables": {
+    "ami_id": "ami-0aef57767f5404a3c",
+    "region": "eu-west-1",
+    "diaspora_version" : "v0.7.14.0",
+    "ruby_version": "2.6",
+    "rvm_version": "1.29.10"
+  },
+
+  "builders": [{
+    "type": "amazon-ebs",
+    "region": "{{user `region`}}",
+    "source_ami": "{{user `ami_id`}}",
+    "instance_type": "t3a.small",
+    "ssh_username": "ubuntu",
+    "ami_name": "diaspora-low-cost-pod-{{user `diaspora_version`}}-{{timestamp}}",
+    "tags": {
+      "Name": "diaspora-low-cost-pod-{{user `diaspora_version`}}-{{timestamp}}"
+    }
+  }],
+
+  "provisioners": [
+    {
+      "type": "file",
+      "source": "config/database.yml.mustache",
+      "destination": "/tmp/database.yml.mustache"
+    },
+    {
+      "type": "file",
+      "source": "config/diaspora.yml.mustache",
+      "destination": "/tmp/diaspora.yml.mustache"
+    },
+    {
+      "type": "file",
+      "source": "config/nginx.global.mustache",
+      "destination": "/tmp/nginx.global.mustache"
+    },
+    {
+      "type": "file",
+      "source": "config/nginx.server.mustache",
+      "destination": "/tmp/nginx.server.mustache"
+    },
+    {
+      "type": "shell",
+      "script": "create_user.sh"
+    },
+    {
+      "type": "shell",
+      "script": "install.sh",
+      "execute_command": "sudo su diaspora sh -c '{{ .Vars }} {{ .Path }}'",
+      "environment_vars": [
+        "DIASPORA_VERSION={{user `diaspora_version`}}",
+        "RUBY_VERSION={{user `ruby_version`}}",
+        "RVM_VERSION={{user `rvm_version`}}"
+      ]
+    }
+  ]
+}
