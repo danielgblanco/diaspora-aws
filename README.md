@@ -4,6 +4,9 @@ all the resources needed, in AWS. It aims to provide a cost effective yet reliab
 Due to the wide range of cost and reliability requirements, we can think of two possible architectures. One focused on
 high reliability, and the other one focused on low cost.
 
+It should be noted that, even though there are other *diaspora forks supporting Docker installations, this repo is based
+on the original installation instructions.
+
 # Low Cost Alternative
 This is a simpler, low-cost architecture. While it still provides a reliable setup, it does not implement any high
 availability features and downtime or low performance are possible. The advantage is that this stack can be run for less
