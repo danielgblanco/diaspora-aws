@@ -88,6 +88,14 @@ Parameters:
     Description: Email address for the admin to use for contact details
     Type: String
     MinLength: '1'
+  HostedZoneId:
+    Description: The ID of the Hosted Zone parent of the domain passed (e.g. if domain is www.example.com the hosted zone must be example.com)
+    Type: String
+    MinLength: '1'
+  DomainName:
+    Description: The fully qualified domain name (FQDN), such as www.example.com
+    Type: String
+    MinLength: '1'
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -99,6 +107,8 @@ Metadata:
           - PodKeyName
           - PodAMI
           - AssetsBucketName
+          - DomainName
+          - HostedZoneId
       - Label:
           default: Diaspora config
         Parameters:
@@ -144,6 +154,10 @@ Metadata:
         default: configuration.admins.account
       AdminEmail:
         default: configuration.admins.podmin_email
+      DomainName:
+        default: Domain Name
+      HostedZoneId:
+        default: Hosted Zone ID
 
 Resources:
   DiasporaVpc:
@@ -181,6 +195,7 @@ Resources:
       Tags:
         - Key: Name
           Value: diaspora-low-cost-private-0
+
   DiasporaPrivateSubnet1:
     Type: AWS::EC2::Subnet
     Properties:
@@ -200,6 +215,7 @@ Resources:
       Tags:
         - Key: Name
           Value: diaspora-low-cost-gateway
+
   DiasporaInternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
     Properties:
@@ -238,16 +254,16 @@ Resources:
   PodSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Enable SSH access and HTTP access from public
+      GroupDescription: Enable SSH access and HTTP access from VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: '22'
           ToPort: '22'
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.0.0.0/16
         - IpProtocol: tcp
           FromPort: '80'
           ToPort: '80'
-          CidrIp: 0.0.0.0/0
+          CidrIp: 10.0.0.0/16
       VpcId: !Ref DiasporaVpc
 
   DbSecurityGroup:
@@ -260,29 +276,6 @@ Resources:
           ToPort: '5432'
           CidrIp: 10.0.0.0/16
       VpcId: !Ref DiasporaVpc
-
-  PodAutoscalingGroup:
-    Type: AWS::AutoScaling::AutoScalingGroup
-    CreationPolicy:
-      ResourceSignal:
-        Timeout: PT15M
-        Count: '1'
-    UpdatePolicy:
-      AutoScalingRollingUpdate:
-        MaxBatchSize: '1'
-        MinInstancesInService: '0'
-        WaitOnResourceSignals: true
-        PauseTime: PT15M
-    Properties:
-      LaunchConfigurationName: !Ref PodLaunchConfig
-      MinSize: '1'
-      MaxSize: '1'
-      VPCZoneIdentifier:
-        - !Ref DiasporaPublicSubnet
-      Tags:
-        - Key: Name
-          Value: diaspora-low-cost-pod
-          PropagateAtLaunch: true
 
   PodRole:
     Type: AWS::IAM::Role
@@ -348,15 +341,12 @@ Resources:
       Roles:
         - !Ref PodRole
 
-  PodElasticIp:
-    Type: AWS::EC2::EIP
-    Properties:
-      Tags:
-        - Key: Name
-          Value: diaspora-low-cost-eip
-
-  PodLaunchConfig:
-    Type: AWS::AutoScaling::LaunchConfiguration
+  PodInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal:
+        Timeout: PT30M
+        Count: '1'
     Metadata:
       Comment: Start services and send healthcheck notification
       AWS::CloudFormation::Init:
@@ -432,7 +422,7 @@ Resources:
               content: !Sub |
                 configuration:
                   environment:
-                    url: http://${PodElasticIp} # TODO: change for domain
+                    url: https://${DomainName}
                     s3:
                       bucket: ${AssetsBucketName}
                       region: ${AWS::Region}
@@ -448,36 +438,28 @@ Resources:
                     podmin_email: ${AdminEmail}
               owner: diaspora
               group: diaspora
-
     Properties:
-      KeyName: !Ref PodKeyName
-      ImageId: !Ref PodAMI
-      SecurityGroups:
-        - !Ref PodSecurityGroup
-      InstanceType: !Ref PodInstanceType
       IamInstanceProfile: !Ref PodInstanceProfile
-      AssociatePublicIpAddress: true
+      ImageId: !Ref PodAMI
+      InstanceType: !Ref PodInstanceType
+      KeyName: !Ref PodKeyName
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeleteOnTermination: true
+          DeviceIndex: '0'
+          GroupSet:
+            - !GetAtt PodSecurityGroup.GroupId
+          SubnetId: !Ref DiasporaPublicSubnet
+      Tags:
+        - Key: Name
+          Value: low-cost-diaspora-pod
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
           set -eo pipefail
 
           echo "Executing cfn-init"
-          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodLaunchConfig --region ${AWS::Region}
-
-          # Try to register EIP (old instance may still be shutting down)
-          echo "Associating EIP"
-          instance_id=$(wget -q -O - http://169.254.169.254/latest/meta-data/instance-id)
-          set +e
-          while true; do
-            aws --region ${AWS::Region} ec2 associate-address --allocation-id ${PodElasticIp.AllocationId} --instance-id $instance_id
-            if [[ "$?" -eq 0 ]]; then
-              break
-            fi
-            echo "Could not register EIP, trying again in 10 seconds"
-            sleep 10
-          done
-          set -e
+          /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
 
           # Apply config
           echo "Rendering Mustache config templates"
@@ -513,7 +495,23 @@ Resources:
           systemctl restart nginx.service
 
           echo "cfn-signal success!"
-          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource PodAutoscalingGroup --region ${AWS::Region}
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
+
+  PodRecoveryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Trigger a recovery when instance status check fails for 15 consecutive minutes.
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed_System
+      Statistic: Minimum
+      Period: '60'
+      EvaluationPeriods: '15'
+      ComparisonOperator: GreaterThanThreshold
+      Threshold: '0'
+      AlarmActions: [ !Sub "arn:aws:automate:${AWS::Region}:ec2:recover" ]
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref PodInstance
 
   AuroraPrivateDbSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -551,10 +549,10 @@ Resources:
           - AllowedMethods:
               - GET
             AllowedOrigins:
-              - !Sub 'http://${PodElasticIp}' # TODO: change for domain
+              - !Sub 'https://${DomainName}'
 
   AssetsBucketPolicy:
-    Type: 'AWS::S3::BucketPolicy'
+    Type: AWS::S3::BucketPolicy
     Properties:
       Bucket: !Ref AssetsBucket
       PolicyDocument:
@@ -564,3 +562,109 @@ Resources:
             Effect: Allow
             Resource: !Sub 'arn:aws:s3:::${AssetsBucket}/assets/*'
             Principal: '*'
+
+  DiasporaCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+      ValidationMethod: DNS
+      Tags:
+        - Key: Name
+          Value: !Ref DomainName
+
+  DiasporaRecordSet:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      Comment: !Sub 'RecordSet for ${DomainName}'
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      ResourceRecords:
+        - !GetAtt DiasporaApiDomainName.RegionalDomainName
+      TTL: 300
+      Type: CNAME
+
+  DiasporaServiceNamespace:
+    Type: AWS::ServiceDiscovery::HttpNamespace
+    Properties:
+      Description: !Sub 'ServiceDiscover Namespace for ${DomainName}'
+      Name: !Ref DomainName
+
+  DiasporaService:
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Description: !Sub 'Service for ${DomainName}'
+      Name: diaspora-pod
+      NamespaceId: !Ref DiasporaServiceNamespace
+
+  DiasporaServiceInstance:
+    Type: AWS::ServiceDiscovery::Instance
+    Properties:
+      InstanceAttributes:
+        AWS_INSTANCE_IPV4: !GetAtt PodInstance.PrivateIp
+        AWS_INSTANCE_PORT: '80'
+      InstanceId: !Ref PodInstance
+      ServiceId: !Ref DiasporaService
+
+  DiasporaApiDomainName:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref DiasporaCertificate
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  DiasporaApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Description: !Sub 'API Gateway for ${DomainName}'
+      DisableExecuteApiEndpoint: true
+      Name: !Ref DomainName
+      ProtocolType: HTTP
+
+  DiasporaProxyRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref DiasporaApiGateway
+      RouteKey: ANY /{proxy+}
+      Target: !Sub 'integrations/${DiasporaProxyIntegration}'
+
+  DiasporaProxyIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref DiasporaApiGateway
+      ConnectionId: !Ref DiasporaApiVpcLink
+      ConnectionType: VPC_LINK
+      IntegrationMethod: ANY
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !GetAtt DiasporaService.Arn
+      PayloadFormatVersion: 1.0
+      RequestParameters: {
+        "overwrite:header.host": !Sub "${DomainName}"
+      }
+
+  DiasporaProxyStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref DiasporaApiGateway
+      AutoDeploy: true
+      Description: !Sub 'API Stage for ${DomainName}'
+      StageName: $default
+
+  DiasporaApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    DependsOn: DiasporaApiDomainName
+    Properties:
+      ApiId: !Ref DiasporaApiGateway
+      DomainName: !Ref DomainName
+      Stage: $default
+
+  DiasporaApiVpcLink:
+    Type: AWS::ApiGatewayV2::VpcLink
+    Properties:
+      Name: diaspora-low-cost-api-vpc-link
+      SubnetIds:
+        - !Ref DiasporaPublicSubnet
