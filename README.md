@@ -21,22 +21,29 @@ Even though this solution is aimed at providing a low-cost alternative, it still
 mind. It is based around the following components.
 
 ### VPC
-The stack is deployed in a VPC with a public subnet, where the pod runs, and a private subnet, where a single-AZ RDS
-database is hosted. In order to save costs on Load Balancers, this pod runs directly in a public subnet, relying on
-a security group to only allow SSH from the VPC (using a bastion host). Only web traffic ports are open to public.
+The stack is deployed in a VPC with a public subnet, where the pod runs, and a private subnet group, where an Aurora RDS
+cluster is hosted. In order to save costs on Load Balancers, this pod runs directly in a public subnet, relying on
+a security group to only allow SSH and HTTP access from the VPC (using a bastion host).
 
-### Pod Autoscaling Group
+### Pod Instance
 This contains one instance running an AMI with all [components](https://wiki.diasporafoundation.org/Diasporas_components_explained)
-installed, except database. Running in ASG provides higher availability as the ASG will restart failed instances. As
-we keep a maximum of 1 instance running, rolling updates will incur in downtime: first the current instance is
-terminated and then a new instance is created. This is intentional, as it is currently not known if different versions
-of *diaspora could run in parallel, especially during DB migrations.
+installed, except database. The reason to run on a single instance instead of an ASG is purely cost related. Running
+on an ASG would require either a load balancer in front (extra cost) or to automatically register an EIP at launch
+exposing this as a public IP, which could be a security concern. There could be a third option, to still register an EIP
+at launch and place the instance in a private subnet, but that would require a NAT Gateway for outbound traffic, also
+incurring in extra costs.
 
-The instances in this ASG auto-register with an Elastic IP at startup, waiting for this EIP to become available. This
-approach is cheaper than running with a load balancer in front of the load balancer.
+The instance is created in a public subnet with no public IP assigned, so it is possible to connect to internet from
+inside the instance.
 
-### Certificate Manager
-Certificate Manager to obtain a TLS certificate for the web server.
+The instance has a CloudWatch alarm configured to recover the instance automatically in case of a failure on the
+underlying infrastructure. This is explained in more detail in the [official AWS documentation](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-recover.html).
+
+### API Gateway
+The API Gateway acts as a proxy to do TLS termination using a certificate acquired from Certificate Manager. Along with
+the API, there's a custom domain created that use Route53 to resolve to the API Gateway, a VPC Link to allow connection
+from API Gateway to private resources in the VPC, and Cloud Map service registering the only instance. Cloud Map
+is required to allow API Gateway to connect to private resources inside a VPC without using a load balancer.
 
 ### S3 Bucket
 This bucket to host assets as explained in the diaspora* documentation on [hosting assets on S3](https://wiki.diasporafoundation.org/Asset_hosting_on_S3).
@@ -44,6 +51,12 @@ This bucket to host assets as explained in the diaspora* documentation on [hosti
 ### Aurora PostgreSQL
 This PostgreSQL on Aurora database runs in private subnets. It is a serverless database, which reduces cost by only
 paying for the periods of usage.
+
+### ACM Certificate
+An AWS Certificate Manager certificate is requested as part of the CloudFormation stack. If the domain used is not
+hosted in Route53, there are some manual steps to follow during creating of the stack, otherwise it'll remain in
+`CREATE_IN_PROGRESS` state. Please refer to the [official documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-certificatemanager-certificate.html)
+for more information.
 
 ## Installation
 
@@ -78,10 +91,9 @@ parameter names, as these will be used later when spinning up the CloudFormation
 To create the CloudFormation stack, go to the [CloudFormation Console](https://eu-west-1.console.aws.amazon.com/cloudformation/home)
 and create a new stack using the `cf_template.yml` template provided.
 
+The stack creation requires the Hosted Zone ID parent of the corresponding domain name to create.
 
-
-
-## Update
+## Upgrades
 TODO: [Database replacement](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html)
 
 
