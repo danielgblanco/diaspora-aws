@@ -48,6 +48,9 @@ is required to allow API Gateway to connect to private resources inside a VPC wi
 ### S3 Bucket
 This bucket to host assets as explained in the diaspora* documentation on [hosting assets on S3](https://wiki.diasporafoundation.org/Asset_hosting_on_S3).
 
+diaspora* does not currently spport IAM instance profiles to upload files to S3 via Fog, this is why an IAM user
+is created with privileges to manage this S3 bucket. They AWS access key is copied onto the diaspora.yml config.
+
 ### Aurora PostgreSQL
 This PostgreSQL on Aurora database runs in private subnets. It is a serverless database, which reduces cost by only
 paying for the periods of usage.
