@@ -19,8 +19,8 @@ configuration:
 
     s3:
       enable: true
-      key: 'N/A'    # Key not needed because instance uses IAM profile
-      secret: 'N/A' # Secret not needed because instance uses IAM profile
+      key: '{{configuration.environment.s3.key}}'
+      secret: '{{configuration.environment.s3.secret}}'
       bucket: '{{configuration.environment.s3.bucket}}'
       region: '{{configuration.environment.s3.region}}'
 

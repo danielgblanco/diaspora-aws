@@ -168,7 +168,7 @@ Resources:
       EnableDnsHostnames: true
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-vpc
+          Value: !Sub '${AWS::StackName}-vpc'
 
   DiasporaPublicSubnet:
     Type: AWS::EC2::Subnet
@@ -181,7 +181,7 @@ Resources:
       VpcId: !Ref DiasporaVpc
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-public
+          Value: !Sub '${AWS::StackName}-public'
 
   DiasporaPrivateSubnet0:
     Type: AWS::EC2::Subnet
@@ -194,7 +194,7 @@ Resources:
       VpcId: !Ref DiasporaVpc
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-private-0
+          Value: !Sub '${AWS::StackName}-private-0'
 
   DiasporaPrivateSubnet1:
     Type: AWS::EC2::Subnet
@@ -207,14 +207,14 @@ Resources:
       VpcId: !Ref DiasporaVpc
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-private-1
+          Value: !Sub '${AWS::StackName}-private-1'
 
   DiasporaInternetGateway:
     Type: AWS::EC2::InternetGateway
     Properties:
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-gateway
+          Value: !Sub '${AWS::StackName}-gateway'
 
   DiasporaInternetGatewayAttachment:
     Type: AWS::EC2::VPCGatewayAttachment
@@ -228,7 +228,7 @@ Resources:
       VpcId: !Ref DiasporaVpc
       Tags:
         - Key: Name
-          Value: diaspora-low-cost-public-routes
+          Value: !Sub '${AWS::StackName}-public-routes'
 
   DiasporaPublicRouteToInternet:
     Type: AWS::EC2::Route
@@ -341,6 +341,27 @@ Resources:
       Roles:
         - !Ref PodRole
 
+  # TODO: do not use access key when instance profile is supported
+  PodS3ApiUser:
+    Type: AWS::IAM::User
+    Properties:
+      Policies:
+        - PolicyName: S3AllowAll
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource:
+                  - !Sub 'arn:aws:s3:::${AssetsBucketName}'
+                  - !Sub 'arn:aws:s3:::${AssetsBucketName}/*'
+      UserName: !Sub '${AWS::StackName}-user'
+
+  PodAS3AccessKey:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref PodS3ApiUser
+
   PodInstance:
     Type: AWS::EC2::Instance
     CreationPolicy:
@@ -424,6 +445,8 @@ Resources:
                   environment:
                     url: https://${DomainName}
                     s3:
+                      key: ${PodAS3AccessKey}
+                      secret: ${PodAS3AccessKey.SecretAccessKey}
                       bucket: ${AssetsBucketName}
                       region: ${AWS::Region}
                   server:
@@ -452,7 +475,7 @@ Resources:
           SubnetId: !Ref DiasporaPublicSubnet
       Tags:
         - Key: Name
-          Value: low-cost-diaspora-pod
+          Value: !Sub '${AWS::StackName}-pod'
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
@@ -665,6 +688,6 @@ Resources:
   DiasporaApiVpcLink:
     Type: AWS::ApiGatewayV2::VpcLink
     Properties:
-      Name: diaspora-low-cost-api-vpc-link
+      Name: !Sub '${AWS::StackName}-vpc-link'
       SubnetIds:
         - !Ref DiasporaPublicSubnet
