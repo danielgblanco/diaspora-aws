@@ -254,7 +254,7 @@ Resources:
   PodSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Enable SSH access and HTTP access from VPC
+      GroupDescription: Enable SSH access and HTTP access within VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: '22'
@@ -341,27 +341,6 @@ Resources:
       Roles:
         - !Ref PodRole
 
-  # TODO: do not use access key when instance profile is supported
-  PodS3ApiUser:
-    Type: AWS::IAM::User
-    Properties:
-      Policies:
-        - PolicyName: S3AllowAll
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action: '*'
-                Resource:
-                  - !Sub 'arn:aws:s3:::${AssetsBucketName}'
-                  - !Sub 'arn:aws:s3:::${AssetsBucketName}/*'
-      UserName: !Sub '${AWS::StackName}-user'
-
-  PodAS3AccessKey:
-    Type: AWS::IAM::AccessKey
-    Properties:
-      UserName: !Ref PodS3ApiUser
-
   PodInstance:
     Type: AWS::EC2::Instance
     CreationPolicy:
@@ -444,11 +423,6 @@ Resources:
                 configuration:
                   environment:
                     url: https://${DomainName}
-                    s3:
-                      key: ${PodAS3AccessKey}
-                      secret: ${PodAS3AccessKey.SecretAccessKey}
-                      bucket: ${AssetsBucketName}
-                      region: ${AWS::Region}
                   server:
                     rails_environment: ${RailsEnvironment}
                   settings:
@@ -467,7 +441,7 @@ Resources:
       InstanceType: !Ref PodInstanceType
       KeyName: !Ref PodKeyName
       NetworkInterfaces:
-        - AssociatePublicIpAddress: false
+        - AssociatePublicIpAddress: true
           DeleteOnTermination: true
           DeviceIndex: '0'
           GroupSet:
@@ -483,6 +457,14 @@ Resources:
 
           echo "Executing cfn-init"
           /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
+
+          echo "Seting up S3FS"
+          echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,user,iam_role=${PodRole} 0 0" >> /etc/fstab
+          mkdir /tmp/diaspora_public
+          mv -r /home/diaspora/diaspora/public/* /tmp/diaspora_public
+          echo "user_allow_other" > /etc/fuse.conf
+          su diaspora -c "mount /home/diaspora/diaspora/public"
+          mv -r /tmp/diaspora_public/* /home/diaspora/diaspora/public
 
           # Apply config
           echo "Rendering Mustache config templates"
@@ -513,6 +495,10 @@ Resources:
           echo "Starting *diaspora server"
           systemctl enable diaspora.target diaspora-sidekiq.service diaspora-web.service
           systemctl restart diaspora.target
+
+          # Allow NGINX read access to diaspora assets and uploads
+          usermod -a -G diaspora www-data
+          chmod g+w /home/diaspora/diaspora/public/uploads
 
           echo "Restarting NGINX server"
           systemctl restart nginx.service
