@@ -461,10 +461,10 @@ Resources:
           echo "Seting up S3FS"
           echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,user,iam_role=${PodRole} 0 0" >> /etc/fstab
           mkdir /tmp/diaspora_public
-          mv -r /home/diaspora/diaspora/public/* /tmp/diaspora_public
+          mv /home/diaspora/diaspora/public/* /tmp/diaspora_public
           echo "user_allow_other" > /etc/fuse.conf
           su diaspora -c "mount /home/diaspora/diaspora/public"
-          mv -r /tmp/diaspora_public/* /home/diaspora/diaspora/public
+          mv /tmp/diaspora_public/* /home/diaspora/diaspora/public
 
           # Apply config
           echo "Rendering Mustache config templates"
