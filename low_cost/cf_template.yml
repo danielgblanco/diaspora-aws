@@ -10,7 +10,7 @@ Parameters:
       - t3a.micro
       - t3.small
       - t3a.small
-      - t3.medimum
+      - t3.medium
       - t3a.medium
       - t3.large
       - t3a.large
@@ -37,11 +37,9 @@ Parameters:
   DatabaseUsernameKey:
     Description: Key for the database username parameter from SSM Parameter Store
     Type: AWS::SSM::Parameter::Name
-    MinLength: '1'
   DatabasePasswordKey:
     Description: Key for the database password parameter from SSM Parameter Store
     Type: AWS::SSM::Parameter::Name
-    MinLength: '1'
   DatabaseUsernameVersion:
     Description: Version for the database username parameter from SSM Parameter Store
     Type: String
@@ -257,12 +255,12 @@ Resources:
       GroupDescription: Enable SSH access and HTTP access within VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: '22'
-          ToPort: '22'
+          FromPort: 22
+          ToPort: 22
           CidrIp: 10.0.0.0/16
         - IpProtocol: tcp
-          FromPort: '80'
-          ToPort: '80'
+          FromPort: 80
+          ToPort: 80
           CidrIp: 10.0.0.0/16
       VpcId: !Ref DiasporaVpc
 
@@ -272,8 +270,8 @@ Resources:
       GroupDescription: Enable PostgreSQL access from within VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: '5432'
-          ToPort: '5432'
+          FromPort: 5432
+          ToPort: 5432
           CidrIp: 10.0.0.0/16
       VpcId: !Ref DiasporaVpc
 
@@ -353,7 +351,7 @@ Resources:
         config:
           files:
             /etc/systemd/system/diaspora.target:
-              content: !Sub |
+              content: |
                 [Unit]
                 Description=Diaspora social network
                 Wants=redis-server.service
@@ -400,12 +398,12 @@ Resources:
               owner: root
               group: root
             /home/diaspora/diaspora/config/nginx.global.values.yml:
-              content: !Sub |
+              content: |
                 http:
               owner: diaspora
               group: diaspora
             /home/diaspora/diaspora/config/nginx.server.values.yml:
-              content: !Sub |
+              content: |
                 server:
               owner: diaspora
               group: diaspora
@@ -515,10 +513,10 @@ Resources:
       Namespace: AWS/EC2
       MetricName: StatusCheckFailed_System
       Statistic: Minimum
-      Period: '60'
-      EvaluationPeriods: '15'
+      Period: 60
+      EvaluationPeriods: 15
       ComparisonOperator: GreaterThanThreshold
-      Threshold: '0'
+      Threshold: 0.0
       AlarmActions: [ !Sub "arn:aws:automate:${AWS::Region}:ec2:recover" ]
       Dimensions:
         - Name: InstanceId
@@ -540,7 +538,7 @@ Resources:
       DBSubnetGroupName: !Ref AuroraPrivateDbSubnetGroup
       Engine: aurora-postgresql
       EngineMode: serverless
-      EngineVersion: 10.12
+      EngineVersion: '10.12'
       MasterUsername: !Sub '{{resolve:ssm:${DatabaseUsernameKey}:${DatabaseUsernameVersion}}}'
       MasterUserPassword: !Sub '{{resolve:ssm-secure:${DatabasePasswordKey}:${DatabasePasswordVersion}}}'
       Port: 5432
@@ -652,7 +650,7 @@ Resources:
       IntegrationMethod: ANY
       IntegrationType: HTTP_PROXY
       IntegrationUri: !GetAtt DiasporaService.Arn
-      PayloadFormatVersion: 1.0
+      PayloadFormatVersion: '1.0'
       RequestParameters: {
         "overwrite:header.host": !Sub "${DomainName}"
       }
