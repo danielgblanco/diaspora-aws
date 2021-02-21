@@ -554,24 +554,6 @@ Resources:
     Type: AWS::S3::Bucket
     Properties:
       BucketName: !Ref AssetsBucketName
-      CorsConfiguration:
-        CorsRules:
-          - AllowedMethods:
-              - GET
-            AllowedOrigins:
-              - !Sub 'https://${DomainName}'
-
-  AssetsBucketPolicy:
-    Type: AWS::S3::BucketPolicy
-    Properties:
-      Bucket: !Ref AssetsBucket
-      PolicyDocument:
-        Statement:
-          - Action:
-              - 's3:GetObject'
-            Effect: Allow
-            Resource: !Sub 'arn:aws:s3:::${AssetsBucket}/assets/*'
-            Principal: '*'
 
   DiasporaCertificate:
     Type: AWS::CertificateManager::Certificate
