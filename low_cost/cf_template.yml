@@ -464,6 +464,7 @@ Resources:
           mv /home/diaspora/diaspora/public/* /tmp/diaspora_public
           echo "user_allow_other" > /etc/fuse.conf
           su diaspora -c "mount /home/diaspora/diaspora/public"
+          sleep 10
           mv /tmp/diaspora_public/* /home/diaspora/diaspora/public
 
           # Apply config
