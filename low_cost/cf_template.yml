@@ -499,6 +499,8 @@ Resources:
 
           # Allow NGINX read access to diaspora assets and uploads
           usermod -a -G diaspora www-data
+          mkdir -p /home/diaspora/diaspora/public/uploads
+          chown diaspora:diaspora /home/diaspora/diaspora/public/uploads
           chmod g+w /home/diaspora/diaspora/public/uploads
 
           echo "Restarting NGINX server"
