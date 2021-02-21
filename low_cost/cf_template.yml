@@ -427,7 +427,7 @@ Resources:
                     rails_environment: ${RailsEnvironment}
                   settings:
                     pod_name: ${PodName}
-                    enable_registration: ${EnableRegistration}
+                    enable_registrations: ${EnableRegistration}
                     invitations:
                       open: ${InvitationsOpen}
                   admins:
@@ -486,11 +486,9 @@ Resources:
           echo "Configuring database"
           su diaspora -c "cd /home/diaspora && source .profile && cd diaspora && RAILS_ENV=${RailsEnvironment} bundle exec rake db:create db:migrate"
 
-          # Precompile assets (download from S3 existing ones already)
+          # Precompile assets
           echo "Precompiling assets"
-          su diaspora -c "aws --region eu-west-1 s3 sync s3://${AssetsBucketName}/assets /home/diaspora/diaspora/public/assets"
           su diaspora -c "cd /home/diaspora && source .profile && cd diaspora && RAILS_ENV=${RailsEnvironment} bin/rake assets:precompile"
-          su diaspora -c "aws --region eu-west-1 s3 sync /home/diaspora/diaspora/public/assets s3://${AssetsBucketName}/assets"
 
           # Start diaspora
           echo "Starting *diaspora server"
@@ -498,6 +496,7 @@ Resources:
           systemctl restart diaspora.target
 
           # Allow NGINX read access to diaspora assets and uploads
+          echo "Giving NGINX rw access to uploads directory"
           usermod -a -G diaspora www-data
           mkdir -p /home/diaspora/diaspora/public/uploads
           chown diaspora:diaspora /home/diaspora/diaspora/public/uploads

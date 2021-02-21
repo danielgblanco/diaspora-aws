@@ -12,7 +12,7 @@ configuration:
     url: "{{configuration.environment.url}}"
     certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'
     redis: redis://localhost
-    require_ssl: false # TODO: enable after certificates are setup
+    require_ssl: false # API Gateway  to EC2 traffic is plain HTTP
 
     sidekiq:
       concurrency: 5
