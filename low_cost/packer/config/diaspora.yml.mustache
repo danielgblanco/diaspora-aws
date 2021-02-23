@@ -9,8 +9,8 @@
 
 configuration:
   environment:
-    url: "{{configuration.environment.url}}"
-    certificate_authorities: '/etc/ssl/certs/ca-certificates.crt'
+    url: {{configuration.environment.url}}
+    certificate_authorities: /etc/ssl/certs/ca-certificates.crt
     redis: redis://localhost
     require_ssl: false # API Gateway  to EC2 traffic is plain HTTP
 
@@ -25,11 +25,11 @@ configuration:
       upload: false
 
   server:
-    listen: 'unix:tmp/diaspora.sock'
-    rails_environment: '{{configuration.server.rails_environment}}'
+    listen: unix:tmp/diaspora.sock
+    rails_environment: {{configuration.server.rails_environment}}
 
   settings:
-    pod_name: "{{configuration.settings.pod_name}}"
+    pod_name: {{configuration.settings.pod_name}}
     enable_registrations: {{configuration.settings.enable_registrations}}
 
     invitations:
@@ -38,3 +38,11 @@ configuration:
   admins:
     account: {{configuration.admins.account}}
     podmin_email: {{configuration.admins.podmin_email}}
+
+  mail:
+    enable: {{configuration.mail.enable}}
+    sender_address: {{configuration.mail.sender_address}}
+    method: sendmail
+    sendmail:
+      location: /usr/sbin/sendmail
+      exim_fix: false

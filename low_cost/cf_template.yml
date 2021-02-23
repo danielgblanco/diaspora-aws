@@ -94,6 +94,40 @@ Parameters:
     Description: The fully qualified domain name (FQDN), such as www.example.com
     Type: String
     MinLength: '1'
+  MailEnabled:
+    Description: Wether to enable mail via Amazon SES SMTP (e.g. false)
+    Type: String
+    MinLength: '1'
+    Default: false
+    AllowedValues:
+      - false
+      - true
+  MailDomain:
+    Description: SES validated domain (e.g. mail.example.com). Domain must be validated previously on the SES console, includinng MAIL FROM domain validation.
+    Type: String
+    MinLength: '1'
+  MailSenderAddress:
+    Description: Email address for outgoing notifications (e.g. no-reply@mail.example.com). Must be part of the domain above.
+    Type: String
+    MinLength: '1'
+  MailUsernameKey:
+    Description: Key for the SES user parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+  MailUsernameVersion:
+    Description: Version for the SES user parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+    Default: '1'
+  MailPasswordKey:
+    Description: Key for the SES password parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+  MailPasswordVersion:
+    Description: Key for the SES password parameter from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+    Default: '1'
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -123,6 +157,16 @@ Metadata:
           - DatabasePasswordKey
           - DatabaseUsernameVersion
           - DatabasePasswordVersion
+      - Label:
+          default: Mail config
+        Parameters:
+          - MailEnabled
+          - MailDomain
+          - MailSenderAddress
+          - MailUsernameKey
+          - MailPasswordKey
+          - MailUsernameVersion
+          - MailPasswordVersion
     ParameterLabels:
       PodInstanceType:
         default: Pod Instance Type
@@ -154,8 +198,20 @@ Metadata:
         default: configuration.admins.podmin_email
       DomainName:
         default: Domain Name
-      HostedZoneId:
-        default: Hosted Zone ID
+      MailEnabled:
+        default: configuration.mail.enable
+      MailDomain:
+        default: SES Mail Domain
+      MailSenderAddress:
+        default: configuration.mail.sender_address
+      MailUsernameKey:
+        default: Mail username key
+      MailUsernameVersion:
+        default: Mail username version
+      MailPasswordKey:
+        default: Mail password key
+      MailPasswordVersion:
+        default: Mail password version
 
 Resources:
   DiasporaVpc:
@@ -316,6 +372,8 @@ Resources:
             Resource:
               - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DatabaseUsernameKey}'
               - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${DatabasePasswordKey}'
+              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${MailUsernameKey}'
+              - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/${MailPasswordKey}'
       Roles:
         - !Ref PodRole
 
@@ -418,6 +476,8 @@ Resources:
               group: diaspora
             /home/diaspora/diaspora/config/diaspora.values.yml:
               content: !Sub |
+                aws:
+                  region: ${AWS::Region}
                 configuration:
                   environment:
                     url: https://${DomainName}
@@ -431,8 +491,14 @@ Resources:
                   admins:
                     account: ${AdminAccount}
                     podmin_email: ${AdminEmail}
+                  mail:
+                    enable: ${MailEnabled}
+                    sender_address: ${MailSenderAddress}
               owner: diaspora
               group: diaspora
+            /etc/mail/access:
+              content: !Sub |
+                Connect:email-smtp.${AWS::Region}.amazonaws.com RELAY
     Properties:
       IamInstanceProfile: !Ref PodInstanceProfile
       ImageId: !Ref PodAMI
@@ -456,8 +522,8 @@ Resources:
           echo "Executing cfn-init"
           /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
 
-          echo "Seting up S3FS"
-          echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,user,iam_role=${PodRole} 0 0" >> /etc/fstab
+          echo "Setting up S3FS"
+          echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,user,noauto,iam_role=${PodRole} 0 0" >> /etc/fstab
           mkdir /tmp/diaspora_public
           cp -rp /home/diaspora/diaspora/public/* /tmp/diaspora_public
           rm -rf /home/diaspora/diaspora/public/*
@@ -465,6 +531,27 @@ Resources:
           su diaspora -c "mount /home/diaspora/diaspora/public"
           sleep 10
           cp -rp /tmp/diaspora_public/* /home/diaspora/diaspora/public
+
+          echo "Setting up Sendmail"
+          # Get SMTP user and password
+          smtp_user=$(aws --region ${AWS::Region} ssm get-parameter --name ${MailUsernameKey}:${MailUsernameVersion} --query 'Parameter.Value' --output text)
+          smtp_password=$(aws --region ${AWS::Region} ssm get-parameter --name ${MailPasswordKey}:${MailPasswordVersion} --with-decryption --query 'Parameter.Value' --output text)
+
+          # Generate auth info
+          echo "AuthInfo:email-smtp.${AWS::Region}.amazonaws.com \"U:root\" \"I:$smtp_user\" \"P:$smtp_password\" \"M:PLAIN\"" > /etc/mail/authinfo
+          makemap hash /etc/mail/authinfo.db < /etc/mail/authinfo
+
+          # Configure relay to SES SMTP endpoint
+          makemap hash /etc/mail/access.db < /etc/mail/access
+
+          #Configure sendmail
+          mailer_config="MAILER_DEFINITIONS\ndefine(\`SMART_HOST', \`email-smtp.${AWS::Region}.amazonaws.com')dnl\ndefine(\`RELAY_MAILER_ARGS', \`TCP $h 587')dnl\ndefine(\`confAUTH_MECHANISMS', \`LOGIN PLAIN')dnl\nFEATURE(\`authinfo', \`hash -o /etc/mail/authinfo.db')dnl\nMASQUERADE_AS(\`${MailDomain}')dnl\nFEATURE(masquerade_envelope)dnl\nFEATURE(masquerade_entire_domain)dnl"
+          sed "s|MAILER_DEFINITIONS|$mailer_config|g" /etc/mail/sendmail.mc
+
+          chmod 666 /etc/mail/sendmail.cf
+          m4 /etc/mail/sendmail.mc > /etc/mail/sendmail.cf
+          chmod 644 /etc/mail/sendmail.cf
+          systemctl restart sendmail
 
           # Apply config
           echo "Rendering Mustache config templates"

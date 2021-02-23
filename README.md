@@ -65,6 +65,18 @@ hosted in Route53, there are some manual steps to follow during creating of the 
 `CREATE_IN_PROGRESS` state. Please refer to the [official documentation](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-certificatemanager-certificate.html)
 for more information.
 
+### Amazon SES
+We use Amazon SES to send emails from this diaspora* instance. In order to do so, domain and SMTP user details have
+to be passed to the CloudFormation stack creation. There are a few preliminary steps that need to be followed:
+
+* [Obtaining SMTP credentials](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/smtp-credentials.html)
+* [Verifying domain](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/verify-domain-procedure.html)
+* [Moving out of sandbox](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/request-production-access.html)
+* [Setting a custom MAIL FROM domain](https://docs.aws.amazon.com/ses/latest/DeveloperGuide/mail-from.html)
+
+After SMTP credentials are created, they need to be stored in SSM Parameter Store so that they can be used during
+stack creation.
+
 ## Installation
 
 First install Packer as mentioned in the [official docs](https://www.packer.io/docs/install).
