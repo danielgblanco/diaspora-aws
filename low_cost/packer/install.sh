@@ -8,7 +8,7 @@ cd ~
 sudo apt-get update -y
 sudo apt-get install -y build-essential git curl gsfonts imagemagick libmagickwand-dev nodejs redis-server libssl-dev \
   libcurl4-openssl-dev libxml2-dev libxslt1-dev libpq-dev cmake awscli \
-  python3 python3-pip ruby-mustache nginx s3fs
+  python3 python3-pip ruby-mustache nginx s3fs sendmail
 
 # Install CloudFormation Helper scripts
 sudo pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
