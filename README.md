@@ -55,8 +55,8 @@ benefits:
 * The bucket is kept private, with no public access to files directly from S3.
 * No CORS necessary.
 
-### Aurora PostgreSQL
-This PostgreSQL on Aurora database runs in private subnets. It is a serverless database, which reduces cost by only
+### Aurora MySQL
+This MySQL on Aurora database runs in private subnets. It is a serverless database, which reduces cost by only
 paying for the periods of usage.
 
 ### ACM Certificate
@@ -89,28 +89,43 @@ recommended). After that run (with your profile name) to enable it:
 export AWS_PROFILE=packer
 ```
 
-Create the AMI you will use for your pod. Replace `<base_ami_id>` and `<aws_region>` with your base AMI and region. The
-scripts have been tested on Ubuntu 20.04 in eu-west-1.
+Create the AMI you will use for your pod. Replace `<base_ami_id>`, `rails_env` and `<aws_region>` with your base AMI,
+rails environment and region. The  scripts have been tested on Ubuntu 20.04 in eu-west-1.
 
 ```
 cd low_cost/packer
-packer build -var ami_id=<base_ami_id> -var region=<aws_region> packer_pod.json
-```
-
-If you want to re-create the AMI for a given version and delete any existing resources run:
-
-```
-packer build -var ami_id=<base_ami_id> -var region=<aws_region> -force_deregister -force_delete_snapshot packer_pod.json
+packer build -var ami_id=<base_ami_id> -var region=<aws_region> -var rails_env=<rails_env> packer_pod.json
 ```
 
 Create parameters using [SSM Parameter Store](https://docs.aws.amazon.com/systems-manager/latest/userguide/systems-manager-parameter-store.html)
-for database username and password. Use `SecureString` as the type for the password parameter. You can choose your own
-parameter names, as these will be used later when spinning up the CloudFormation Stack.
+for database and SES username and password. Use `SecureString` as the type for the password parameter. You can choose
+your own  parameter names, as these will be used later when spinning up the CloudFormation Stack.
 
 To create the CloudFormation stack, go to the [CloudFormation Console](https://eu-west-1.console.aws.amazon.com/cloudformation/home)
 and create a new stack using the `cf_template.yml` template provided.
 
 The stack creation requires the Hosted Zone ID parent of the corresponding domain name to create.
+
+After the stack is created, register via the UI and then make yourself an admin by SSH'ing into the instance and
+running:
+
+```bash
+sudo su diaspora
+cd ~/diaspora
+source ~/.profile
+
+RAILS_ENV={your_rails_env} bundle exec rails console
+
+# In the rails console
+Role.add_admin User.where(username: "{your_username}").first.person
+Role.add_moderator User.where(username: "{your_username}}").first.person
+exit
+
+# Change the enable_registrations setting in config/diaspora.yml if you want to block future registrations (also update
+# CloudFormation stack with the relevant parameter so that it stays disabled in future updates)
+
+sudo systemctl restart diaspora-web.service
+```
 
 ## Upgrades
 TODO: [Database replacement](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html)

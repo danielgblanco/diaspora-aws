@@ -4,7 +4,8 @@
     "region": "eu-west-1",
     "diaspora_version" : "v0.7.14.0",
     "ruby_version": "2.6",
-    "rvm_version": "1.29.10"
+    "rvm_version": "1.29.10",
+    "rails_env": "production"
   },
 
   "builders": [{
@@ -51,7 +52,8 @@
       "environment_vars": [
         "DIASPORA_VERSION={{user `diaspora_version`}}",
         "RUBY_VERSION={{user `ruby_version`}}",
-        "RVM_VERSION={{user `rvm_version`}}"
+        "RVM_VERSION={{user `rvm_version`}}",
+        "RAILS_ENV={{user `rails_env`}}"
       ]
     }
   ]

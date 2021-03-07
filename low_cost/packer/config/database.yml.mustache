@@ -1,13 +1,14 @@
-postgresql: &postgresql
-  adapter: postgresql
+mysql: &mysql
+  adapter: mysql2
   host: "{{database.host}}"
   port: {{database.port}}
   username: "{{database.user}}"
   password: "{{database.password}}"
-  encoding: unicode
+  encoding: utf8mb4
+  collation: utf8mb4_bin
 
 common: &common
-  <<: *postgresql
+  <<: *mysql
 
   # Should match environment.sidekiq.concurrency
   pool: 5

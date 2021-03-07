@@ -7,7 +7,7 @@ cd ~
 # Install dependencies
 sudo apt-get update -y
 sudo apt-get install -y build-essential git curl gsfonts imagemagick libmagickwand-dev nodejs redis-server libssl-dev \
-  libcurl4-openssl-dev libxml2-dev libxslt1-dev libpq-dev cmake awscli \
+  libcurl4-openssl-dev libxml2-dev libxslt1-dev default-libmysqlclient-dev cmake awscli \
   python3 python3-pip ruby-mustache nginx s3fs sendmail
 
 # Install CloudFormation Helper scripts
@@ -25,12 +25,12 @@ rvm install ${RUBY_VERSION}
 git clone -b master https://github.com/diaspora/diaspora.git
 cd diaspora
 git checkout tags/${DIASPORA_VERSION}
-cp config/database.yml.example config/database.yml
-cp config/diaspora.yml.example config/diaspora.yml
 
 # Copy mustahce templates
 cp /tmp/database.yml.mustache config/database.yml.mustache
+cp /tmp/database.yml.mustache config/database.yml
 cp /tmp/diaspora.yml.mustache config/diaspora.yml.mustache
+cp /tmp/diaspora.yml.mustache config/diaspora.yml
 cp /tmp/nginx.global.mustache config/nginx.global.mustache
 cp /tmp/nginx.server.mustache config/nginx.server.mustache
 

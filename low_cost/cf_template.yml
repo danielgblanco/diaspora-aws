@@ -53,7 +53,7 @@ Parameters:
   RailsEnvironment:
     Description: Environment to run on (e.g. production)
     Type: String
-    Default: development
+    Default: production
     AllowedValues :
       - development
       - production
@@ -323,11 +323,11 @@ Resources:
   DbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Enable PostgreSQL access from within VPC
+      GroupDescription: Enable MySQL access from within VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 5432
-          ToPort: 5432
+          FromPort: 3306
+          ToPort: 3306
           CidrIp: 10.0.0.0/16
       VpcId: !Ref DiasporaVpc
 
@@ -523,13 +523,13 @@ Resources:
           /usr/local/bin/cfn-init -v --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
 
           echo "Setting up S3FS"
-          echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,user,noauto,iam_role=${PodRole} 0 0" >> /etc/fstab
+          diaspora_gid=$(id -g diaspora)
+          diaspora_uid=$(id -u diaspora)
+          echo "${AssetsBucketName} /home/diaspora/diaspora/public fuse.s3fs _netdev,allow_other,gid=$diaspora_gid,uid=$diaspora_uid,iam_role=${PodRole} 0 0" >> /etc/fstab
           mkdir /tmp/diaspora_public
           cp -rp /home/diaspora/diaspora/public/* /tmp/diaspora_public
           rm -rf /home/diaspora/diaspora/public/*
-          echo "user_allow_other" > /etc/fuse.conf
-          su diaspora -c "mount /home/diaspora/diaspora/public"
-          sleep 10
+          mount -a
           cp -rp /tmp/diaspora_public/* /home/diaspora/diaspora/public
 
           echo "Setting up Sendmail"
@@ -621,18 +621,19 @@ Resources:
   AuroraCluster:
     Type: AWS::RDS::DBCluster
     Properties:
-      BackupRetentionPeriod: 1
+      BackupRetentionPeriod: 3
       DeletionProtection: false # TODO: enable
       DBSubnetGroupName: !Ref AuroraPrivateDbSubnetGroup
-      Engine: aurora-postgresql
+      Engine: aurora-mysql
       EngineMode: serverless
-      EngineVersion: '10.12'
+      EngineVersion: '5.7.12'
       MasterUsername: !Sub '{{resolve:ssm:${DatabaseUsernameKey}:${DatabaseUsernameVersion}}}'
       MasterUserPassword: !Sub '{{resolve:ssm-secure:${DatabasePasswordKey}:${DatabasePasswordVersion}}}'
-      Port: 5432
+      Port: 3306
       ScalingConfiguration:
         AutoPause: true
-        MaxCapacity: 2
+        MinCapacity: 1
+        MaxCapacity: 1
         SecondsUntilAutoPause: 300
       VpcSecurityGroupIds:
         - !Ref DbSecurityGroup
