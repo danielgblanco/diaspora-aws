@@ -470,8 +470,8 @@ Resources:
                 database:
                   user: #DB_USER#          # Replaced using AWS SSM CLI at startup (resolve:ssm not supported here)
                   password: #DB_PASSWORD#  # Replaced using AWS SSM CLI at startup (resolve:ssm not supported here)
-                  host: ${AuroraCluster.Endpoint.Address}
-                  port: ${AuroraCluster.Endpoint.Port}
+                  host: ${RdsInstance.Endpoint.Address}
+                  port: ${RdsInstance.Endpoint.Port}
               owner: diaspora
               group: diaspora
             /home/diaspora/diaspora/config/diaspora.values.yml:
@@ -618,24 +618,21 @@ Resources:
         - !Ref DiasporaPrivateSubnet0
         - !Ref DiasporaPrivateSubnet1
 
-  AuroraCluster:
-    Type: AWS::RDS::DBCluster
+  RdsInstance:
+    Type: AWS::RDS::DBInstance
     Properties:
       BackupRetentionPeriod: 3
-      DeletionProtection: false # TODO: enable
+      DBInstanceClass: db.t3.micro
+      DBSecurityGroups:
+        - String
+      DBSnapshotIdentifier: arn:aws:rds:eu-west-1:749436255362:cluster-snapshot:beforeinstance #TODO (remove)
       DBSubnetGroupName: !Ref AuroraPrivateDbSubnetGroup
-      Engine: aurora-mysql
-      EngineMode: serverless
-      EngineVersion: '5.7.12'
+      Engine: mysql
+      EngineVersion: 8.0.21
       MasterUsername: !Sub '{{resolve:ssm:${DatabaseUsernameKey}:${DatabaseUsernameVersion}}}'
       MasterUserPassword: !Sub '{{resolve:ssm-secure:${DatabasePasswordKey}:${DatabasePasswordVersion}}}'
-      Port: 3306
-      ScalingConfiguration:
-        AutoPause: true
-        MinCapacity: 1
-        MaxCapacity: 1
-        SecondsUntilAutoPause: 300
-      VpcSecurityGroupIds:
+      Port: "3306"
+      VPCSecurityGroups:
         - !Ref DbSecurityGroup
 
   AssetsBucket:
