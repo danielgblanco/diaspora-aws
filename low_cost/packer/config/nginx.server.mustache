@@ -14,6 +14,10 @@ server {
   # Proxy if requested file not found
   try_files $uri @diaspora;
 
+  location = /status {
+    stub_status;
+  }
+
   location /assets/ {
     expires max;
     add_header Cache-Control public;

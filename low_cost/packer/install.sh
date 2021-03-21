@@ -5,10 +5,13 @@ set -eo pipefail
 cd ~
 
 # Install dependencies
+curl -s https://download.newrelic.com/infrastructure_agent/gpg/newrelic-infra.gpg | sudo apt-key add -
+printf "deb [arch=amd64] https://download.newrelic.com/infrastructure_agent/linux/apt focal main" | sudo tee -a /etc/apt/sources.list.d/newrelic-infra.list
+
 sudo apt-get update -y
 sudo apt-get install -y build-essential git curl gsfonts imagemagick libmagickwand-dev nodejs redis-server libssl-dev \
   libcurl4-openssl-dev libxml2-dev libxslt1-dev libpq-dev cmake awscli \
-  python3 python3-pip ruby-mustache nginx s3fs sendmail
+  python3 python3-pip ruby-mustache nginx s3fs sendmail newrelic-infra nri-redis nri-nginx
 
 # Install CloudFormation Helper scripts
 sudo pip3 install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-py3-latest.tar.gz
@@ -34,8 +37,11 @@ cp /tmp/diaspora.yml.mustache config/diaspora.yml.mustache
 cp /tmp/nginx.global.mustache config/nginx.global.mustache
 cp /tmp/nginx.server.mustache config/nginx.server.mustache
 
+# Configure New Relic APM
+echo -e "\n\n#New Relic Agent\ngem 'newrelic_rpm'\n" >> Gemfile
+
 # Install Ruby libraries
-gem install bundler
+gem install bundler --no-deployment
 script/configure_bundler
 bin/bundle install --full-index
 

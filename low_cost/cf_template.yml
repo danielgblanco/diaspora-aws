@@ -128,6 +128,15 @@ Parameters:
     Type: String
     MinLength: '1'
     Default: '1'
+  NewRelicApiKeyKey:
+    Description: Key for the New Relic API Key from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+  NewRelicApiKeyVersion:
+    Description: Version for the New Relic API Key from SSM Parameter Store
+    Type: String
+    MinLength: '1'
+    Default: '1'
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -167,6 +176,11 @@ Metadata:
           - MailPasswordKey
           - MailUsernameVersion
           - MailPasswordVersion
+      - Label:
+          default: New Relic config
+        Parameters:
+          - NewRelicApiKeyKey
+          - NewRelicApiKeyVersion
     ParameterLabels:
       PodInstanceType:
         default: Pod Instance Type
@@ -212,6 +226,10 @@ Metadata:
         default: Mail password key
       MailPasswordVersion:
         default: Mail password version
+      NewRelicApiKeyKey:
+        default: New Relic API Key key
+      NewRelicApiKeyVersion:
+        default: New Relic API Key version
 
 Resources:
   DiasporaVpc:
@@ -499,6 +517,82 @@ Resources:
             /etc/mail/access:
               content: !Sub |
                 Connect:email-smtp.${AWS::Region}.amazonaws.com RELAY
+            /home/diaspora/diaspora/config/newrelic.yml:
+              content: !Sub |
+                common: &default_settings
+                  license_key: #NEW_RELIC_API_KEY#
+                  app_name: ${PodName}
+                  distributed_tracing:
+                    enabled: true
+                  log_level: info
+                development:
+                  <<: *default_settings
+                  app_name: ${PodName} (Development)
+                test:
+                  <<: *default_settings
+                  monitor_mode: false
+                staging:
+                  <<: *default_settings
+                  app_name: ${PodName} (Staging)
+                production:
+                  <<: *default_settings
+              owner: diaspora
+              group: diaspora
+            /etc/newrelic-infra/integrations.d/redis-config.yml:
+              content: |
+                integration_name: com.newrelic.redis
+
+                instances:
+                  - name: redis-metrics
+                    command: metrics
+                    arguments:
+                      hostname: localhost
+                      port: 6379
+                      keys:
+                      password:
+                      config_inventory: true
+                      keys_limit: 30
+                      remote_monitoring: true
+                      use_unix_socket: true
+
+                  - name: redis-inventory
+                    command: inventory
+                    arguments:
+                      hostname: localhost
+                      port: 6379
+                      password:
+                      remote_monitoring: true
+                      use_unix_socket: true
+            /etc/newrelic-infra/integrations.d/nginx-config.yml:
+              content: !Sub |
+                integration_name: com.newrelic.nginx
+
+                instances:
+                  - name: nginx-server-metrics
+                    command: metrics
+                    arguments:
+                        status_url: http://127.0.0.1/status
+                        status_module: discover
+                        remote_monitoring: true
+                    labels:
+                        env: production
+                        role: load_balancer
+
+                  - name: nginx-server-inventory
+                    command: inventory
+                    arguments:
+                        config_path: /etc/nginx/nginx.conf
+                        status_url: http://127.0.0.1/status
+                    labels:
+                        env: ${RailsEnvironment}
+                        role: load_balancer
+            /etc/newrelic-infra/logging.d/logging.yml:
+              content: !Sub |
+                logs:
+                  - name: ${RailsEnvironment}.log
+                    file: /home/diaspora/diaspora/log/${RailsEnvironment}.log
+                  - name: sidekiq.log
+                    file: /home/diaspora/diaspora/log/sidekiq.log
     Properties:
       IamInstanceProfile: !Ref PodInstanceProfile
       ImageId: !Ref PodAMI
@@ -568,6 +662,9 @@ Resources:
           mustache config/nginx.global.values.yml config/nginx.global.mustache > /etc/nginx/nginx.conf
           mustache config/nginx.server.values.yml config/nginx.server.mustache > /etc/nginx/sites-available/default
 
+          nr_api_key=$(aws --region ${AWS::Region} ssm get-parameter --name ${NewRelicApiKeyKey}:${NewRelicApiKeyVersion} --query 'Parameter.Value' --output text)
+          sed -i "s/#NEW_RELIC_API_KEY#/$nr_api_key/g" config/newrelic.yml
+
           # Configure database
           echo "Configuring database"
           su diaspora -c "cd /home/diaspora && source .profile && cd diaspora && RAILS_ENV=${RailsEnvironment} bundle exec rake db:create db:migrate"
@@ -590,6 +687,10 @@ Resources:
 
           echo "Restarting NGINX server"
           systemctl restart nginx.service
+
+          # Configure New Relic infra
+          echo "license_key: $nr_api_key" | sudo tee -a /etc/newrelic-infra.yml
+          sudo systemctl restart newrelic-infra
 
           echo "cfn-signal success!"
           /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource PodInstance --region ${AWS::Region}
